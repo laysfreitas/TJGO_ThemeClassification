@@ -1,4 +1,4 @@
-# TJGO_Theme_Classification
+# TJGO_ThemeClassification
 
 Código para classificar temas jurídicos baseados nas seguintes informações: Informação Legislativa, Ementa , Inteiro teor. 
 Cada linha terá textos com 512 tokens ( pois usaremos o modelo BERT para fazer o fine tunning ) e cada texto terá seu respectivo label.
