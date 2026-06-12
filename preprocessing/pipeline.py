@@ -106,3 +106,30 @@ def aplicar_pipeline_texto(
         atual = etapa.funcao(atual)
         tamanhos[etapa.nome] = len(atual)
     return atual, tamanhos
+
+def split_512_palavras(texto, tamanho=512):
+    
+    if pd.isna(texto):
+        return []
+    
+    palavras = str(texto).split()
+    
+    return [
+        " ".join(palavras[i:i + tamanho])
+        for i in range(0, len(palavras), tamanho)
+    ]
+
+def gerar_chunks(df):
+
+    df["chunks"] = df["text"].apply(split_512_palavras)
+
+    df_chunks = df.explode("chunks").reset_index(drop=True)
+
+    df_chunks = df_chunks.rename(columns={
+        "chunks": "texts"
+    })
+
+    return df_chunks[['labels','texts']].rename(columns={
+        "labels":"label",
+        "texts":"text"
+    })

@@ -1,0 +1,188 @@
+"""
+Author: Yonglong Tian (yonglong@mit.edu)
+Date: May 07, 2020
+"""
+from __future__ import print_function
+
+import torch #é uma biblioteca de código aberto focada em aprendizado de máquina e deep learning
+import torch.nn as nn
+
+L = 10 # labels
+
+def jaccard_similarity(i, j):
+    """Computes the Jaccard similarity between two lists of length L."""
+
+    sum_min = 0
+    sum_max = 0
+
+    for l in range(L):
+        sum_min = sum_min + min(i[l], j[l])
+        sum_max = sum_max + max(i[l], j[l])
+
+    if sum_max == 0:
+        return 0
+    return sum_min / sum_max
+
+class SupConLoss(nn.Module):
+    """Supervised Contrastive Learning: https://arxiv.org/pdf/2004.11362.pdf.
+    It also supports the unsupervised contrastive loss in SimCLR"""
+    def __init__(self, temperature=0.07, contrast_mode='all',
+                 base_temperature=0.07):
+        super(SupConLoss, self).__init__()
+        self.temperature = temperature
+        self.contrast_mode = contrast_mode
+        self.base_temperature = base_temperature
+
+    def forward(self, features, labels=None, mask=None):
+        """Compute loss for model. If both `labels` and `mask` are None,
+        it degenerates to SimCLR unsupervised loss:
+        https://arxiv.org/pdf/2002.05709.pdf
+
+        Args:
+            features: hidden vector of shape [bsz, n_views, ...].
+            labels: ground truth of shape [bsz].
+            mask: contrastive mask of shape [bsz, bsz], mask_{i,j}=1 if sample j
+                has the same class as sample i. Can be asymmetric.
+        Returns:
+            A loss scalar.
+        """
+        device = (torch.device('cuda')
+                  if features.is_cuda
+                  else torch.device('cpu'))
+
+        if len(features.shape) < 3:
+            raise ValueError('`features` needs to be [bsz, n_views, ...],'
+                             'at least 3 dimensions are required')
+        if len(features.shape) > 3:
+            features = features.view(features.shape[0], features.shape[1], -1)
+
+        batch_size = features.shape[0] # N
+        if labels is not None and mask is not None:
+            raise ValueError('Cannot define both `labels` and `mask`')
+        elif labels is None and mask is None:
+            mask = torch.eye(batch_size, dtype=torch.float32).to(device) # This command creates a 2D identity matrix of size batch_size × batch_size, sets its 
+                                                                        # numerical precision to 32-bit float, and loads it onto a specific computation device (e.g., CPU or GPU).
+
+        elif labels is not None:
+            labels = labels.contiguous().view(-1, 1) # is used to flatten a tensor of target labels into a 2D column vector with a single column. 
+                                                    # It is commonly used in binary classification, regression, or loss functions (like BCELoss) to resolve shape mismatch errors.
+            if labels.shape[0] != batch_size:
+                raise ValueError('Num of labels does not match num of features')
+            mask = torch.eq(labels, labels.T).float().to(device) #  creates a binary similarity matrix that identifies which samples in a batch share the exact same label, 
+                                                                # a foundational step in contrastive learning losses like SupCon
+        else:
+            mask = mask.float().to(device)
+
+        contrast_count = features.shape[1]
+        contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0) # rearrange multi-view or batched features
+                                                                        # It flattens the first two dimensions of a tensor, transforming data with multiple "views" per sample into a single sequential list of samples.
+        if self.contrast_mode == 'one':
+            anchor_feature = features[:, 0]
+            anchor_count = 1
+        elif self.contrast_mode == 'all':
+            anchor_feature = contrast_feature
+            anchor_count = contrast_count
+        else:
+            raise ValueError('Unknown mode: {}'.format(self.contrast_mode))
+
+        # compute logits
+        anchor_dot_contrast = torch.div( # divide todas as similaridades pela temperatura
+            torch.matmul(anchor_feature, contrast_feature.T), # matmul realiza uma multiplicação de matrizes 
+            self.temperature)
+        # for numerical stability
+        logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True) # varre a matriz anchor_dot_contrast e retorna o maior valor de similaridade 
+                                                    # keepdim: mantém a dimensão original, uma coluna vertical
+                # _ : ignora os índices dos valores máximos, pois não são necessários para o cálculo da perda.
+        logits = anchor_dot_contrast - logits_max.detach() # ----------------------------------------------------------------
+
+        # tile mask
+        mask = mask.repeat(anchor_count, contrast_count)
+        # mask-out self-contrast cases
+        logits_mask = torch.scatter(
+            torch.ones_like(mask),
+            1,
+            torch.arange(batch_size * anchor_count).view(-1, 1).to(device),
+            0
+        )
+        mask = mask * logits_mask
+
+        # compute log_prob
+        exp_logits = torch.exp(logits) * logits_mask
+        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
+
+        # compute mean of log-likelihood over positive
+        # modified to handle edge cases when there is no positive pair
+        # for an anchor point. 
+        # Edge case e.g.:- 
+        # features of shape: [4,1,...]
+        # labels:            [0,1,1,2]
+        # loss before mean:  [nan, ..., ..., nan] 
+        mask_pos_pairs = mask.sum(1)
+        mask_pos_pairs = torch.where(mask_pos_pairs < 1e-6, 1, mask_pos_pairs)
+        mean_log_prob_pos = (mask * log_prob).sum(1) / mask_pos_pairs
+
+        # loss
+        loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
+        loss = loss.view(anchor_count, batch_size).mean()
+
+        return loss
+
+from setfit import SetFitModel
+
+def model_init(params):
+    params = params or {}
+    max_iter = params.get("max_iter", 100)
+    solver = params.get("solver", "liblinear")
+    params = {
+        "head_params": {
+            "max_iter": max_iter,
+            "solver": solver,
+        }
+    }
+    return SetFitModel.from_pretrained("sentence-transformers/paraphrase-albert-small-v2", **params)
+
+def hp_space(trial):  # Training parameters
+    return {
+        "learning_rate": trial.suggest_float("learning_rate", 1e-6, 1e-4, log=True),
+        "num_epochs": trial.suggest_int("num_epochs", 1, 5),
+        "batch_size": trial.suggest_categorical("batch_size", [4, 8, 16, 32, 64]),
+        "seed": trial.suggest_int("seed", 1, 40),
+        "num_iterations": trial.suggest_categorical("num_iterations", [5, 10, 20]),
+        "max_iter": trial.suggest_int("max_iter", 50, 300),
+        "solver": trial.suggest_categorical("solver", ["newton-cg", "lbfgs", "liblinear"]),
+    }    
+
+class SupConResNet(nn.Module):
+    """backbone + projection head"""
+    def __init__(self, name='resnet50', head='mlp', feat_dim=128):
+        super(SupConResNet, self).__init__()
+        model_fun, dim_in = model_dict[name]
+        self.encoder = model_fun()
+        if head == 'linear':
+            self.head = nn.Linear(dim_in, feat_dim)
+        elif head == 'mlp':
+            self.head = nn.Sequential(
+                nn.Linear(dim_in, dim_in),
+                nn.ReLU(inplace=True),
+                nn.Linear(dim_in, feat_dim)
+            )
+        else:
+            raise NotImplementedError(
+                'head not supported: {}'.format(head))
+
+    def forward(self, x):
+        feat = self.encoder(x)
+        feat = F.normalize(self.head(feat), dim=1)
+        return feat
+
+
+class SupCEResNet(nn.Module):
+    """encoder + classifier"""
+    def __init__(self, name='resnet50', num_classes=10):
+        super(SupCEResNet, self).__init__()
+        model_fun, dim_in = model_dict[name]
+        self.encoder = model_fun()
+        self.fc = nn.Linear(dim_in, num_classes)
+
+    def forward(self, x):
+        return self.fc(self.encoder(x))
