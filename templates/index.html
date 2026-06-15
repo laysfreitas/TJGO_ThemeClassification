@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+
+    <title>Classificador de Temas Jurídicos</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            width: 85%;
+            max-width: 1000px;
+            margin: 40px auto;
+            background: white;
+            padding: 30px;
+            border-radius: 14px;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #1f2937;
+            margin-bottom: 10px;
+        }
+
+        p {
+            color: #4b5563;
+            line-height: 1.5;
+        }
+
+        textarea {
+            width: 100%;
+            height: 320px;
+            padding: 15px;
+            font-size: 15px;
+            border: 1px solid #d1d5db;
+            border-radius: 10px;
+            resize: vertical;
+            box-sizing: border-box;
+            margin-top: 15px;
+        }
+
+        button {
+            margin-top: 20px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 13px 24px;
+            font-size: 16px;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .resultado {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 12px;
+            background: #ecfdf5;
+            border: 1px solid #10b981;
+            display: none;
+        }
+
+        .resultado h2 {
+            margin-top: 0;
+            color: #065f46;
+        }
+
+        .erro {
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 12px;
+            background: #fef2f2;
+            border: 1px solid #ef4444;
+            color: #991b1b;
+            display: none;
+        }
+
+        .campo-resultado {
+            font-size: 18px;
+            margin: 10px 0;
+        }
+
+        .label {
+            font-weight: bold;
+            color: #374151;
+        }
+
+        .probabilidade-box {
+            width: 100%;
+            background: #d1fae5;
+            border-radius: 20px;
+            overflow: hidden;
+            margin-top: 10px;
+            height: 24px;
+        }
+
+        .probabilidade-barra {
+            height: 100%;
+            width: 0%;
+            background: #10b981;
+            text-align: center;
+            color: white;
+            font-size: 13px;
+            line-height: 24px;
+            transition: width 0.5s ease;
+        }
+
+        .loading {
+            margin-top: 15px;
+            color: #2563eb;
+            display: none;
+        }
+
+        .aviso {
+            margin-top: 20px;
+            background: #fffbeb;
+            border: 1px solid #f59e0b;
+            color: #92400e;
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="container">
+        <h1>Classificador de Temas Jurídicos</h1>
+
+        <p>
+            Cole abaixo o texto da petição. O sistema irá retornar o tema mais provável
+            de acordo com o modelo BERT treinado.
+        </p>
+
+        <textarea id="textoPeticao" placeholder="Digite ou cole aqui o texto da petição..."></textarea>
+
+        <br>
+
+        <button id="btnPrever" onclick="preverTema()">
+            Prever tema
+        </button>
+
+        <div id="loading" class="loading">
+            Processando petição...
+        </div>
+
+        <div id="resultado" class="resultado">
+            <h2>Resultado da previsão</h2>
+
+            <div class="campo-resultado">
+                <span class="label">Tema previsto:</span>
+                <span id="temaPredito"></span>
+            </div>
+
+            <div class="campo-resultado">
+                <span class="label">ID da classe:</span>
+                <span id="classeId"></span>
+            </div>
+
+            <div class="campo-resultado">
+                <span class="label">Probabilidade estimada:</span>
+                <span id="probabilidadeTexto"></span>
+            </div>
+
+            <div class="probabilidade-box">
+                <div id="probabilidadeBarra" class="probabilidade-barra">
+                    0%
+                </div>
+            </div>
+
+            <div class="aviso">
+                Atenção: a probabilidade representa a confiança do modelo na classe prevista.
+                Ela não deve ser interpretada como certeza jurídica.
+            </div>
+        </div>
+
+        <div id="erro" class="erro"></div>
+    </div>
+
+
+    <script>
+        async function preverTema() {
+            const texto = document.getElementById("textoPeticao").value.trim();
+
+            const resultadoDiv = document.getElementById("resultado");
+            const erroDiv = document.getElementById("erro");
+            const loadingDiv = document.getElementById("loading");
+            const btnPrever = document.getElementById("btnPrever");
+
+            resultadoDiv.style.display = "none";
+            erroDiv.style.display = "none";
+
+            if (!texto) {
+                erroDiv.innerText = "Digite o texto da petição antes de prever.";
+                erroDiv.style.display = "block";
+                return;
+            }
+
+            btnPrever.disabled = true;
+            loadingDiv.style.display = "block";
+
+            try {
+                const response = await fetch("/prever", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        texto: texto
+                    })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.erro || "Erro ao realizar a previsão.");
+                }
+
+                document.getElementById("temaPredito").innerText = data.tema_predito;
+                document.getElementById("classeId").innerText = data.classe_id;
+                document.getElementById("probabilidadeTexto").innerText = data.probabilidade + "%";
+
+                const barra = document.getElementById("probabilidadeBarra");
+                barra.style.width = data.probabilidade + "%";
+                barra.innerText = data.probabilidade + "%";
+
+                resultadoDiv.style.display = "block";
+
+            } catch (error) {
+                erroDiv.innerText = error.message;
+                erroDiv.style.display = "block";
+            } finally {
+                btnPrever.disabled = false;
+                loadingDiv.style.display = "none";
+            }
+        }
+    </script>
+
+</body>
+
+</html>

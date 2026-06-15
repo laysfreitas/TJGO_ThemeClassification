@@ -133,3 +133,42 @@ def gerar_chunks(df):
         "labels":"label",
         "texts":"text"
     })
+
+import evaluate
+
+def load_evaluation_metrics() :
+    return {
+        "accuracy": evaluate.load("accuracy"),
+        "f1": evaluate.load("f1"),
+        "precision": evaluate.load("precision"),
+        "recall": evaluate.load("recall"),
+    }
+def compute_metrics(eval_prediction):
+      logits, labels = eval_prediction
+      predictions = np.argmax(logits, axis=-1)
+      return calculate_metrics(predictions, labels)
+
+
+def calculate_metrics(predictions, labels):
+      metrics = load_evaluation_metrics()
+      metric_inputs = {"predictions": predictions, "references": labels}
+      return {
+          "accuracy": float(metrics["accuracy"].compute(**metric_inputs)["accuracy"]),
+          "f1_macro": float(metrics["f1"].compute(**metric_inputs, average="macro")["f1"]),
+          "f1_weighted": float(metrics["f1"].compute(**metric_inputs, average="weighted")["f1"]),
+          "precision_macro": float(
+              metrics["precision"].compute(
+                  **metric_inputs,
+                  average="macro",
+                  zero_division=0,
+              )["precision"]
+          ),
+          "recall_macro": float(
+              metrics["recall"].compute(
+                  **metric_inputs,
+                  average="macro",
+                  zero_division=0,
+              )["recall"]
+          ),
+      }
+print(compute_metrics(([[0.5, -0.5], [-0.5, 0.5]], [0, 1])))
