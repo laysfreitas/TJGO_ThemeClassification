@@ -9,7 +9,7 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 # Configurações
 # ============================================================
 
-CAMINHO_MODELO = "./modelo_bert_base_temas"
+CAMINHO_MODELO = r"C:\Users\lfmelo\Documents\Github\TJGO_ThemeClassification\modeling\modelo_bert_base_temas"
 
 app = Flask(__name__)
 

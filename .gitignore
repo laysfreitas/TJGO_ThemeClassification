@@ -2,3 +2,7 @@
 /preprocessing/__pycache__
 /data
 /modeling/__pycache__
+/bert_base_cross_entropy
+/modeling/bert_supcon_ajustado
+modeling/data_limpo.csv
+/modeling/modelo_bert_base_temas

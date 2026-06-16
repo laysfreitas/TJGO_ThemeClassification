@@ -31,10 +31,10 @@ from transformers import (
 # - uma coluna de label/tema
 
 # Ajuste aqui para os nomes reais das colunas
-COLUNA_TEXTO = "texto"
+COLUNA_TEXTO = "texto_chunk"
 COLUNA_LABEL = "label"
 
-dataf = pl.read_parquet(r"C:\Users\lfmelo\Documents\Github\TJGO_ThemeClassification\data\dataset_base.parquet")
+dataf = pl.read_parquet(r"C:\Users\lfmelo\Documents\Github\TJGO_ThemeClassification\data\dataset_chunks.parquet")
 df = dataf.to_pandas()
 
 _INTEIRO_TEOR_PATTERNS = [
@@ -48,8 +48,11 @@ def limpar_inteiro_teor(text: str) -> str:
         text = pattern.sub(replacement, text)
     return _MULTI_SPACE.sub(" ", text).strip()
 
-df = df.dropna(subset=["texto"]).copy()
-df["texto"] = df["texto"].map(limpar_inteiro_teor)
+df = df.reset_index(drop=True)
+df["id_peticao"] = (df["chunk_index"] == 0).cumsum()
+
+df = df.dropna(subset=["texto_chunk"]).copy()
+df["texto_chunk"] = df["texto_chunk"].map(limpar_inteiro_teor)
 
 df = df.rename(columns={
     COLUNA_TEXTO: "text",
@@ -85,21 +88,26 @@ print("Exemplo de mapeamento:", id2label)
 # 3. Separar treino e teste
 # ============================================================
 
-train_df, test_df = train_test_split(
-    df[["text", "label"]],
+ids_peticoes = df["id_peticao"].unique()
+
+train_ids, test_ids = train_test_split(
+    ids_peticoes,
     test_size=0.2,
-    random_state=42,
-    stratify=df["label"]
+    random_state=42
 )
 
-train_dataset = Dataset.from_pandas(train_df, preserve_index=False)
-test_dataset = Dataset.from_pandas(test_df, preserve_index=False)
+train_df = df[df["id_peticao"].isin(train_ids)].copy()
+test_df = df[df["id_peticao"].isin(test_ids)].copy()
 
-# O Hugging Face Datasets permite dividir, mapear e transformar datasets
-# usando funções como train_test_split e map. 
-# Aqui usamos Dataset.from_pandas porque partimos de um DataFrame.
-# Referência: documentação oficial de processamento do Datasets. 
-# https://huggingface.co/docs/datasets/process
+train_dataset = Dataset.from_pandas(
+    train_df[["text", "label"]],
+    preserve_index=False
+)
+
+test_dataset = Dataset.from_pandas(
+    test_df[["text", "label"]],
+    preserve_index=False
+)
 
 # ============================================================
 # 4. Tokenização
