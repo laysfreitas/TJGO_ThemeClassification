@@ -126,3 +126,84 @@ class SupConLoss(nn.Module):
         loss = loss.view(anchor_count, batch_size).mean()
 
         return loss
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class KPositiveContrastiveLoss(nn.Module):
+    def __init__(self, temperature=0.07, k_pos=6):
+        super(KPositiveContrastiveLoss, self).__init__()
+        self.temperature = temperature
+        self.k_pos = k_pos
+
+    def forward(self, embeddings, labels):
+        """
+        Args:
+            embeddings: Tensor of shape [batch_size, embedding_dim]
+            labels: LongTensor of shape [batch_size]
+        """
+        device = embeddings.device
+        batch_size = embeddings.shape[0]
+        
+        # 1. Normalize embeddings to unit hypersphere
+        embeddings = F.normalize(embeddings, p=2, dim=1)
+        
+        # 2. Compute cosine similarity matrix
+        similarity_matrix = torch.matmul(embeddings, embeddings.t()) # [B, B]
+        
+        # Create identity mask (to exclude the anchor itself)
+        logits_mask = torch.scatter(
+            torch.ones_like(similarity_matrix),
+            1,
+            torch.arange(batch_size).view(-1, 1).to(device),
+            0
+        )
+        
+        loss_total = 0.0
+        valid_anchors = 0
+        
+        for i in range(batch_size):
+            anchor_label = labels[i].item()
+            
+            # 3. Identify all positive instances in the batch for the current anchor
+            # (excluding the anchor itself)
+            pos_indices = (labels == anchor_label).nonzero(as_tuple=True)[0]
+            pos_indices = pos_indices[pos_indices != i]
+            
+            if len(pos_indices) == 0:
+                continue # Skip if there are no other positives in this batch
+                
+            # 4. If we have more than k positives, sample exactly k of them
+            if len(pos_indices) > self.k_pos:
+                perm = torch.randperm(len(pos_indices))
+                pos_indices = pos_indices[perm[:self.k_pos]]
+                
+            # 5. Extract the logits (similarities) for these k positives
+            pos_logits = similarity_matrix[i, pos_indices] / self.temperature # [K]
+            
+            # 6. Extract negative logits (all samples excluding the anchor and the selected positives)
+            # Mask out the anchor itself, and the chosen k positive pairs
+            current_mask = logits_mask[i].clone()
+            current_mask[pos_indices] = 0
+            neg_indices = current_mask.nonzero(as_tuple=True)[0]
+            
+            if len(neg_indices) == 0:
+                continue # Skip if there are no negatives to push away
+                
+            neg_logits = similarity_matrix[i, neg_indices] / self.temperature # [N_neg]
+            
+            # 7. Concatenate pos logits and neg logits to calculate CrossEntropy
+            # Shape: [1 + K + N_neg] -> target is always the 0-th index
+            logits = torch.cat([pos_logits, neg_logits], dim=0).unsqueeze(0)
+            target = torch.zeros(1, dtype=torch.long).to(device)
+            
+            # 8. Compute InfoNCE Loss for this specific anchor
+            loss = F.cross_entropy(logits, target)
+            loss_total += loss
+            valid_anchors += 1
+            
+        if valid_anchors == 0:
+            return torch.tensor(0.0, requires_grad=True).to(device)
+            
+        return loss_total / valid_anchors
