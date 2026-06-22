@@ -2,7 +2,7 @@ import torch
 import joblib
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-CAMINHO_MODELO = r"C:\Users\lfmelo\Documents\Github\TJGO_ThemeClassification\modeling\modelo_bert_base_temas"
+CAMINHO_MODELO = r"C:\Users\Administrador\Documents\GitHub\TJGO_ThemeClassification\modelo_bert_base_temas"
 
 tokenizer = AutoTokenizer.from_pretrained(CAMINHO_MODELO)
 model = AutoModelForSequenceClassification.from_pretrained(CAMINHO_MODELO)
