@@ -100,10 +100,23 @@ test_dataset = Dataset.from_pandas(test_df[["text", "label", "id_peticao"]], pre
 # ============================================================
 
 MODEL_NAME = "dominguesm/legal-bert-base-cased-ptbr"
+<<<<<<< Updated upstream
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
 def tokenize_function(examples):
     return tokenizer(examples["text"], truncation=True, max_length=512)
+=======
+
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+
+def tokenize_function(examples):
+    return tokenizer(
+        examples["text"],
+        #padding="max_length",
+        truncation=True,
+        max_length=512
+    )
+>>>>>>> Stashed changes
 
 train_dataset = train_dataset.map(tokenize_function, batched=True)
 test_dataset = test_dataset.map(tokenize_function, batched=True)
